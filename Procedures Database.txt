@@ -1,0 +1,120 @@
+otp validation procedure
+ 
+Text
+CREATE DEFINER=`dev`@`%` PROCEDURE `otpValidate`(
+    IN P_Otp varchar(6),
+    IN p_mobilenumber varchar(25),
+    out p_outval int(1)
+    
+)
+BEGIN
+    DECLARE nowTime TIMESTAMP;
+    SET nowTime = NOW();
+    
+    IF EXISTS (
+        SELECT id FROM otpmaster
+        WHERE otp = P_Otp AND mobilenumber = p_mobilenumber AND createdatetime + INTERVAL 120 SECOND >= nowTime AND status = 1
+    ) THEN
+        set p_outval= 1;
+    ELSEIF EXISTS (
+        SELECT id FROM otpmaster  
+        WHERE otp = P_Otp AND mobilenumber = p_mobilenumber
+        ORDER BY id DESC
+        LIMIT 1
+
+       
+    ) THEN
+        BEGIN
+            -- Code for expired OTP
+            UPDATE otpmaster SET status = 0 WHERE otp = P_Otp AND mobilenumber = p_mobilenumber;
+            set p_outval= 0;
+        END;
+    ELSE
+        set p_outval=-1;
+    END IF;
+END
+
+
+
+
+
+Text
+CREATE DEFINER=`dev`@`%` PROCEDURE `validate_mobilenumber`(
+    IN p_mobilenumber VARCHAR(25),
+    OUT p_outval INT
+)
+BEGIN
+    DECLARE user_exists INT;
+    
+    SELECT 1 INTO user_exists
+    FROM SignalLight.users
+    WHERE mobilenumber = p_mobilenumber
+    LIMIT 1;
+    
+    IF user_exists = 1 THEN
+    SET p_outval = 1;
+    else
+    set p_outval=-1;
+    END IF;
+END
+
+
+
+
+
+
+
+
+
+
+
+CREATE DEFINER=`dev`@`%` PROCEDURE `CheckMobileNumberExists`(IN mobile_number VARCHAR(20), OUT result INT)
+BEGIN
+    DECLARE schema_name VARCHAR(50);
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE table_exists INT DEFAULT 0;
+    DECLARE cur CURSOR FOR SELECT DISTINCT `tag` FROM `SignalLight`.`premises`;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    SET result = -1; -- Default value in case the number is not found
+
+    OPEN cur;
+
+    read_loop: LOOP
+        FETCH cur INTO schema_name;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        SET @check_table_query = CONCAT(
+            'SELECT COUNT(*) INTO @table_exists FROM information_schema.tables WHERE table_schema = \'',
+            schema_name, '\' AND table_name = \'users\';'
+        );
+
+        PREPARE check_table_stmt FROM @check_table_query;
+        EXECUTE check_table_stmt;
+        DEALLOCATE PREPARE check_table_stmt;
+
+        IF @table_exists > 0 THEN
+            SET @query = CONCAT(
+                'SELECT COUNT(*) INTO @num_users FROM `',
+                schema_name,
+                '`.`users` WHERE mobilenumber = ''',
+                mobile_number,
+                ''' LIMIT 1;'
+            );
+
+            PREPARE stmt FROM @query;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+
+            IF @num_users > 0 THEN
+                SET result = 1;
+                LEAVE read_loop;
+            END IF;
+        END IF;
+    END LOOP read_loop;
+
+    CLOSE cur;
+END
+Expand (49 lines)
